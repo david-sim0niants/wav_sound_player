@@ -34,6 +34,11 @@ int main(int argc, char *argv[])
 	wav_fp = argv[1];
 
 	ret = wsp_wav_read_header(wav_fp, &wav_header);
+	if (ret != 0) {
+		errno = ret;
+		perror("Failed reading WAV header");
+		return 1;
+	}
 
 	ret = snd_pcm_open(&pcm_handle, PCM_DEVICE, SND_PCM_STREAM_PLAYBACK, 0);
 	if (ret < 0) {
@@ -88,7 +93,7 @@ int main(int argc, char *argv[])
 	printf("PCM state: %s\n",snd_pcm_state_name(snd_pcm_state(pcm_handle)));
 
 	snd_pcm_hw_params_get_channels(params, &tmp);
-	printf("channels: %i ", tmp);
+	printf("channels: %i \n", tmp);
 
 	if (tmp == 1)
 		printf("(mono)\n");
