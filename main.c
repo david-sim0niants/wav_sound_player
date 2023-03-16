@@ -6,16 +6,20 @@
 
 snd_pcm_format_t wsp_bpS_to_snd_pcm_format(unsigned int bits_per_sample);
 
+void *xalloc(unsigned long size);
+
 
 #define PCM_DEVICE "default"
 
 int main(int argc, char *argv[])
 {
 	int ret;
-	struct wsp_wav_header wav_header;
 
 	const char *wav_fp;
-	int wav_fd;
+	FILE *wav_file;
+
+	struct wsp_wav_header wav_header;
+	char *wav_data_section;
 
 	unsigned int tmp, period_time;
 
@@ -32,13 +36,25 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 	wav_fp = argv[1];
+	wav_file = fopen(wav_fp, "r");
 
-	ret = wsp_wav_read_header(wav_fp, &wav_header);
+
+	ret = wsp_wav_read_header(wav_file, &wav_header);
 	if (ret != 0) {
 		errno = ret;
 		perror("Failed reading WAV header");
 		return 1;
 	}
+
+	wav_data_section = xalloc(wav_header.data_section_size);
+	ret = wsp_wav_read_data_section(wav_file, wav_data_section,
+					wav_header.data_section_size);
+	if (ret != 0) {
+		errno = ret;
+		perror("Failed reading data section.");
+		return 1;
+	}
+
 
 	ret = snd_pcm_open(&pcm_handle, PCM_DEVICE, SND_PCM_STREAM_PLAYBACK, 0);
 	if (ret < 0) {
@@ -93,7 +109,7 @@ int main(int argc, char *argv[])
 	printf("PCM state: %s\n",snd_pcm_state_name(snd_pcm_state(pcm_handle)));
 
 	snd_pcm_hw_params_get_channels(params, &tmp);
-	printf("channels: %i \n", tmp);
+	printf("channels: %i\n", tmp);
 
 	if (tmp == 1)
 		printf("(mono)\n");
@@ -108,26 +124,14 @@ int main(int argc, char *argv[])
 
 	snd_pcm_hw_params_get_period_time(params, &period_time, NULL);
 
-	buffer_size = frames * wav_header.nr_channels * 2;
-	buffer_data = (char *)malloc(buffer_size);
+	buffer_size = frames * wav_header.nr_channels
+			* wav_header.bits_per_sample / 8;
+	buffer_data = xalloc(buffer_size);
 
 	printf("buffer_size: %lu\n", buffer_size);
-
-	wav_fd = open(wav_fp, 0, O_RDONLY);
-
-	int header_bytes_left = 44;
-	char header[44];
-	while (header_bytes_left > 0) {
-		ret = read(wav_fd, header, header_bytes_left);
-		header_bytes_left -= ret;
-	}
-
-	int32_t data_bytes_left = *(int32_t *)(header + 40);
-	lseek(wav_fd, data_bytes_left, SEEK_CUR);
-
 	printf("Period time: %d\n", period_time);
 
-	while ((ret = read(wav_fd, buffer_data, buffer_size))) {
+	while ((ret = fread(buffer_data, buffer_size, 1, wav_file))) {
 
 		// for (size_t i = 0, j = 0; i < samples_per_period; ++i, ++j) {
 		// 	printf("%06hd ", samples_data[i]);
@@ -148,12 +152,13 @@ int main(int argc, char *argv[])
 		}
 		sleep(1);
 	}
-
-	close(wav_fd);
+	free(buffer_data);
 
 	snd_pcm_drain(pcm_handle);
 	snd_pcm_close(pcm_handle);
-	free(buffer_data);
+
+	free(wav_data_section);
+	fclose(wav_file);
 
 	return 0;
 }
@@ -175,4 +180,13 @@ snd_pcm_format_t wsp_bpS_to_snd_pcm_format(unsigned int bits_per_sample)
 		default:
 			return SND_PCM_FORMAT_UNKNOWN;
 	}
+}
+
+void *xalloc(unsigned long size)
+{
+	void *ptr = malloc(size);
+	if (ptr)
+		return ptr;
+	exit(1);
+	return ptr;
 }

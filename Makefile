@@ -13,15 +13,15 @@ mkdir_bin:
 
 CONFIG_FLAGS :=
 ifeq ($(CONFIG), Debug)
-	CONFIG_FLAGS := -ggdb
+	CONFIG_FLAGS := $(CONFIG_FLAGS) -ggdb
 else ifeq ($(CONFIG), Release)
-	CONFIG_FLAGS := -O3
+	CONFIG_FLAGS := $(CONFIG_FLAGS) -O3
 endif
 
 
 asound_LINK := -lasound
 
-wsp_OBJS 		:= wav_read.o
+wsp_OBJS 		:= wav_read.o wav_play.o
 wsp_SRCS 		:= $(patsubst %.o, %.c, $(wsp_OBJS))
 wsp_OBJS 		:= $(patsubst %, $(BUILD_DIR)/%, $(wsp_OBJS))
 

@@ -2,6 +2,9 @@
 #define WSP__WAV_READ_H__
 
 
+#include <stdio.h>
+
+
 /* WAV file header's general contents */
 struct wsp_wav_header {
 	unsigned int file_size; /* size of the WAV file */
@@ -15,8 +18,12 @@ struct wsp_wav_header {
 	unsigned int data_section_size; /* size of the data section */
 };
 
-/* Read WAV file header. */
-int wsp_wav_read_header(const char *fp, struct wsp_wav_header *header);
+/* Read WAV file header.
+ * Leaves WAV file position pointing at the data section. */
+int wsp_wav_read_header(FILE *wav_file, struct wsp_wav_header *header);
+/* Read WAV file data section.
+ * Leaves WAV file position pointing at the waveform data. */
+int wsp_wav_read_data_section(FILE *wav_file, char *data, size_t size);
 
 
 #endif

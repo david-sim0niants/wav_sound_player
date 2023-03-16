@@ -7,19 +7,19 @@
 
 #define WAV_HEADER_SIZE 44
 
-int wsp_wav_read_header(const char *fp, struct wsp_wav_header *header)
+int wsp_wav_read_header(FILE *wav_file, struct wsp_wav_header *header)
 {
-	FILE *wav_file;
+	int ret;
 	char wav_file_header[WAV_HEADER_SIZE];
+	size_t blocks_read;
 
-	wav_file = fopen(fp, "r");
-	if (wav_file == NULL) {
-		return ENOENT;
-	}
+	ret = fseek(wav_file, 0, SEEK_SET);
+	if (ret)
+		return ret;
 
-	ssize_t bytes_read = fread(wav_file_header,WAV_HEADER_SIZE,1, wav_file);
+	blocks_read = fread(wav_file_header, WAV_HEADER_SIZE, 1, wav_file);
 
-	if (bytes_read < WAV_HEADER_SIZE)
+	if (blocks_read == 0)
 		return ENODATA;
 
 	header->file_size 	  = *(unsigned int *) 	(wav_file_header + 4);
@@ -29,6 +29,21 @@ int wsp_wav_read_header(const char *fp, struct wsp_wav_header *header)
 	header->block_align 	  = *(short *) 		(wav_file_header + 32);
 	header->bits_per_sample   = *(short *) 		(wav_file_header + 34);
 	header->data_section_size = *(unsigned int *)  	(wav_file_header + 40);
+
+	return 0;
+}
+
+int wsp_wav_read_data_section(FILE *wav_file, char *data, size_t size)
+{
+	int ret;
+
+	ret = fseek(wav_file, WAV_HEADER_SIZE, SEEK_SET);
+	if (ret)
+		return ret;
+
+	ret = fread(data, size, 1, wav_file);
+	if (ret == 0)
+		return ENODATA;
 
 	return 0;
 }
