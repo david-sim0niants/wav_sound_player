@@ -31,11 +31,16 @@ int main(int argc, char *argv[])
 	}
 	wav_fp = argv[1];
 	wav_file = fopen(wav_fp, "r");
+	if (wav_file == NULL) {
+		ret = -1;
+		fprintf(stderr, "Failed opening WAV file at %s\n", wav_fp);
+		goto LEAVE;
+	}
 
 	ret = wsp_wav_read_header(wav_file, &wav_header);
 	if (ret != 0) {
 		fprintf(stderr,
-			"Failed reading WAV header. %s", strerror(ret));
+			"Failed reading WAV header. %s\n", strerror(ret));
 		goto LEAVE_wav_file;
 	}
 
@@ -47,7 +52,7 @@ int main(int argc, char *argv[])
 					wav_header.data_section_size);
 	if (ret != 0) {
 		fprintf(stderr,
-			"Failed reading data section. %s", strerror(ret));
+			"Failed reading data section. %s\n", strerror(ret));
 		goto LEAVE_wav_data_section;
 	}
 
@@ -55,7 +60,7 @@ int main(int argc, char *argv[])
 	ret = wsp_play_init_pcm_device(PCM_DEVICE, &dev_handle);
 	if (ret < 0) {
 		fprintf(stderr,
-			"Failed initializing PCM device. %s", strerror(ret));
+			"Failed initializing PCM device. %s\n", strerror(ret));
 		goto LEAVE_TERM_dev_handle;
 	}
 
@@ -65,16 +70,19 @@ int main(int argc, char *argv[])
 
 	ret = wsp_play_start_pcm(dev_handle, &params);
 	if (ret < 0) {
-		fprintf(stderr,
-			"Failed start playing PCM device. %s", strerror(ret));
+		fprintf(stderr, "Failed to start playing PCM device. %s\n",
+			strerror(ret));
 		goto LEAVE_STOP_dev_handle;
 	}
 
 
 	pcm_size = wav_header.sample_rate * wav_header.bits_per_sample / 8;
+	// pcm_size = 4096;
 	pcm_data = malloc(pcm_size);
-	if (!pcm_data)
+	if (!pcm_data) {
+		fprintf(stderr, "Failed allocating memory for PCM buffer\n");
 		goto LEAVE_STOP_dev_handle;
+	}
 
 	while ((ret = fread(pcm_data, pcm_size, 1, wav_file))) {
 
@@ -89,7 +97,7 @@ int main(int argc, char *argv[])
 
 		ret = wsp_play_run_pcm(dev_handle, pcm_data, pcm_size);
 		if (ret < 0) {
-			printf("Failed running PCM");
+			fprintf(stderr, "Failed running PCM\n");
 			goto LEAVE_pcm_data;
 		}
 	}
@@ -111,5 +119,6 @@ LEAVE_wav_data_section:
 LEAVE_wav_file:
 	fclose(wav_file);
 
+LEAVE:
 	return ret;
 }
