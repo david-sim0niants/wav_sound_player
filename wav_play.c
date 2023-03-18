@@ -2,11 +2,17 @@
 #include <alsa/asoundlib.h>
 
 
-#define pcm_to_wsp_device_handle(handle) ((wsp_device_handle_t *)handle)
-#define wsp_to_pcm_device_handle(handle) ((snd_pcm_t *)handle)
+struct wsp_device_handle {
+	snd_pcm_t *pcm_handle;
+	snd_pcm_hw_params_t *pcm_params;
+	struct wsp_play_pcm_params params;
+};
 
 
-int wsp_play_init_pcm_device(const char *name, wsp_device_handle_t **handle)
+#define wsp_to_pcm_device_handle(handle) (handle->pcm_handle)
+
+
+int wsp_play_init_pcm_device(const char *name, wsp_device_handle_t **p_handle)
 {
 	int ret;
 	snd_pcm_t *pcm_handle;
@@ -18,7 +24,11 @@ int wsp_play_init_pcm_device(const char *name, wsp_device_handle_t **handle)
 		return ret;
 	}
 
-	*handle = pcm_to_wsp_device_handle(pcm_handle);
+	*p_handle = malloc(sizeof(struct wsp_device_handle));
+	(*p_handle)->pcm_handle = pcm_handle;
+	(*p_handle)->pcm_params = NULL;
+	memset(&(*p_handle)->params, 0, sizeof((*p_handle)->params));
+
 	return 0;
 }
 
@@ -46,6 +56,33 @@ static snd_pcm_format_t bpS_to_pcm_format(unsigned int bits_per_sample)
 	}
 }
 
+int __wsp_play_get_pcm_params(wsp_device_handle_t *handle)
+{
+	int ret;
+	snd_pcm_t *pcm_handle = wsp_to_pcm_device_handle(handle);
+	snd_pcm_hw_params_t *pcm_params = handle->pcm_params;
+
+	unsigned int tmp_uint;
+
+	/* Get number of channels. */
+	ret = snd_pcm_hw_params_get_channels(pcm_params, &tmp_uint);
+	if (ret < 0) return ret;
+	handle->params.nr_channels = (short)tmp_uint;
+
+	/* Get sample rate. */
+	ret = snd_pcm_hw_params_get_rate(pcm_params, &tmp_uint, NULL);
+	if (ret < 0) return ret;
+	handle->params.sample_rate = (unsigned int)tmp_uint;
+
+	snd_pcm_uframes_t tmp_uframes;
+
+	/* Get period size. */
+	ret = snd_pcm_hw_params_get_period_size(pcm_params, &tmp_uframes, NULL);
+	if (ret < 0) return ret;
+	handle->params.period_size = (unsigned int)tmp_uframes;
+
+	return 0;
+}
 
 int wsp_play_start_pcm(wsp_device_handle_t *handle,
 			struct wsp_play_pcm_params *params)
@@ -55,7 +92,7 @@ int wsp_play_start_pcm(wsp_device_handle_t *handle,
 	snd_pcm_hw_params_t *pcm_params;
 
 	/* Allocating PCM params. */
-	snd_pcm_hw_params_alloca(&pcm_params);
+	snd_pcm_hw_params_malloc(&pcm_params);
 	/* Initializing PCM params. */
 	snd_pcm_hw_params_any(pcm_handle, pcm_params);
 
@@ -80,27 +117,53 @@ int wsp_play_start_pcm(wsp_device_handle_t *handle,
 		pcm_handle, pcm_params, &params->sample_rate, 0);
 	if (ret < 0) return ret;
 
+	/* Setting period size to %nr_frames frames. */
+	snd_pcm_uframes_t nr_frames = 0x100;
+	ret = snd_pcm_hw_params_set_period_size_near(
+		pcm_handle, pcm_params, &nr_frames, 0);
+
 	/* Setting the pcm params. */
 	ret = snd_pcm_hw_params(pcm_handle, pcm_params);
+	if (ret < 0) return ret;
 
-	return ret;
+	handle->pcm_handle = pcm_handle;
+	handle->pcm_params = pcm_params;
+	handle->params.bits_per_sample = params->bits_per_sample;
+	return __wsp_play_get_pcm_params(handle);
 }
 
 int wsp_play_stop_pcm(wsp_device_handle_t *handle)
 {
-	return snd_pcm_drain(wsp_to_pcm_device_handle(handle));
+	int ret;
+	ret = snd_pcm_drain(wsp_to_pcm_device_handle(handle));
+	snd_pcm_hw_params_free(handle->pcm_params);
+	return ret;
 }
 
-int wsp_play_run_pcm(wsp_device_handle_t *handle,
-			const char *pcm_data, size_t pcm_size)
+long wsp_play_run_pcm(wsp_device_handle_t *handle,
+			const void *pcm_buffer_data, unsigned int pcm_size)
 {
-	snd_pcm_t *pcm_handle = wsp_to_pcm_device_handle(handle);
 	int ret;
 
-	ret = snd_pcm_writei(pcm_handle, pcm_data, pcm_size);
-	if (ret == -EPIPE) {
+	if (handle->params.period_size < pcm_size)
+		return -EINVAL;
+
+	snd_pcm_t *pcm_handle = wsp_to_pcm_device_handle(handle);
+
+	snd_pcm_sframes_t nr_bytes;
+	nr_bytes = snd_pcm_writei(pcm_handle, pcm_buffer_data, pcm_size);
+
+	if (nr_bytes == -EPIPE) {
+		/* Underrun or overrun occurred. */
 		snd_pcm_prepare(pcm_handle);
 		return 0;
 	}
-	return ret;
+
+	return nr_bytes;
+}
+
+void wsp_play_get_pcm_params(wsp_device_handle_t *handle,
+				struct wsp_play_pcm_params *params)
+{
+	memcpy(params, &handle->params, sizeof(*params));
 }
